@@ -3,7 +3,6 @@
     <SearchNavbar :initialKeyword="keyword" @search="onSearch" />
     <div v-if="loading">
       <h1>Loading...</h1>
-      <!-- <Shimmer class="w-full h-52" /> -->
     </div>
     <div v-else>
       <ImageList :videos="videos" />
@@ -14,97 +13,79 @@
 <script>
 import SearchNavbar from '../components/SearchNavbar.vue';
 import ImageList from '../components/ImageList.vue';
-import Shimmer from '../components/Shimmer.vue';
 
 export default {
   name: 'HomePage',
-  components: { SearchNavbar, ImageList, Shimmer },
+  components: { SearchNavbar, ImageList },
   data() {
     return {
       videos: [],
       keyword: localStorage.getItem('searchKeyword') || this.$route.query.q || '',
-      loading: false, // New loading state
+      loading: false,
     };
   },
   methods: {
     async fetchVideos(keyword) {
-      // Set loading state to true
-      this.videos = []
+      this.videos = [];
       this.loading = true;
 
-      // const cachedResult = localStorage.getItem(`search_${keyword}`);
-      // if (cachedResult) {
-      //   this.videos = JSON.parse(cachedResult);
-      //   this.loading = false; // Hide shimmer effect after loading
-      //   return;
-      // }
+      const cachedResults = localStorage.getItem(`search_${keyword}`);
+      if (cachedResults) {
+        this.videos = JSON.parse(cachedResults);
+        this.loading = false;
+        return;
+      }
 
-      // try {
-      //   const response = await axios.get(`http://localhost:8000/search`, {
-      //     params: { q: keyword },
-      //   });
-      //   this.videos = response.data;
-      //   localStorage.setItem(`search_${keyword}`, JSON.stringify(response.data));
-      // } catch (error) {
-      //   console.error('Error fetching videos:', error);
-      // } finally {
-      //   this.loading = false; // Hide shimmer effect after loading
-      // }
-      fetch(`http://localhost:8000/stream?q=${keyword}`)
-        .then(response => {
-            const reader = response.body.getReader();
-            return new ReadableStream({
-                start(controller) {
-                    function push() {
-                        reader.read().then(({ done, value }) => {
-                            if (done) {
-                                controller.close();
-                                return;
-                            }
-                            // Convert Uint8Array to string and enqueue
-                            controller.enqueue(value);
-                            push();
-                        });
-                    }
-                    push();
+      try {
+        const response = await fetch(`http://localhost:8000/stream?q=${keyword}`);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        const stream = new ReadableStream({
+          start(controller) {
+            function push() {
+              reader.read().then(({ done, value }) => {
+                if (done) {
+                  controller.close();
+                  return;
                 }
-            });
-        })
-        .then(stream => new Response(stream))
-        .then(response => {
-            const reader = response.body.getReader();
-            let decoder = new TextDecoder(); // Create a TextDecoder to decode bytes
-
-            const readStream = () => {
-                reader.read().then(({ done, value }) => {
-                    if (done) {
-                        // console.log("Stream finished");
-                        // localStorage.setItem(`search_${keyword}`, JSON.stringify(this.videos));
-                        this.loading = false; 
-                        return;
-                    }
-
-                    const chunk = decoder.decode(value, { stream: true });
-                    try {
-                        const videoData = JSON.parse(chunk);
-                        this.videos.push(videoData); // Update this to spread if needed
-                        this.loading = false; 
-                    } catch (error) {
-                        console.error("Error parsing JSON:", error);
-                    }
-                    readStream();
-                });
-            };
-            readStream();
-        })
-        .catch(error => {
-            console.error("Error fetching stream:", error);
+                controller.enqueue(value);
+                push();
+              });
+            }
+            push();
+          }
         });
+        const videoResponse = new Response(stream);
+        const videoReader = videoResponse.body.getReader();
+        const readStream = () => {
+        videoReader.read().then(({ done, value }) => {
+          if (done) {
+            this.loading = false;
+            localStorage.setItem(`search_${keyword}`, JSON.stringify(this.videos));
+            return;
+          }
+          const chunk = decoder.decode(value, { stream: true });
+          try {
+            const videoData = JSON.parse(chunk);
+            this.videos = [...this.videos, videoData]; // Ensure reactivity
+            this.loading = false;
+            localStorage.setItem(`search_${keyword}`, JSON.stringify(this.videos));
+          } catch (error) {
+            console.error("Error parsing JSON:", error);
+          }
+          readStream(); // Call the function recursively
+        });
+      };
+        readStream();
+      } catch (error) {
+        console.error("Error fetching stream:", error);
+        this.loading = false;
+      }
     },
     onSearch(keyword) {
+      // console.log(keyword);
       if (keyword.trim() === '') return;
 
-      localStorage.setItem('searchKeyword', keyword);
       this.$router.push({ query: { q: keyword } }).catch(() => {});
 
       this.fetchVideos(keyword);
@@ -112,7 +93,13 @@ export default {
   },
   mounted() {
     if (this.keyword) {
-      this.fetchVideos(this.keyword);
+      localStorage.setItem('searchKeyword', this.keyword);
+      const cachedResults = localStorage.getItem(`search_${this.keyword}`);
+      if (cachedResults) {
+        this.videos = JSON.parse(cachedResults);
+      } else {
+        this.fetchVideos(this.keyword);
+      }
     }
   },
 };
