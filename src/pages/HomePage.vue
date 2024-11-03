@@ -20,7 +20,7 @@ export default {
   data() {
     return {
       videos: [],
-      keyword: localStorage.getItem('searchKeyword') || this.$route.query.q || '',
+      keyword: this.$route.query.q || '',
       loading: false,
     };
   },
@@ -93,7 +93,7 @@ export default {
   },
   mounted() {
     if (this.keyword) {
-      localStorage.setItem('searchKeyword', this.keyword);
+      // localStorage.setItem('searchKeyword', this.keyword);
       const cachedResults = localStorage.getItem(`search_${this.keyword}`);
       if (cachedResults) {
         this.videos = JSON.parse(cachedResults);
